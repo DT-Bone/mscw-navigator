@@ -1,0 +1,32 @@
+# Personal: settings, logs, captures
+nav_prefs*.json
+nav_log.txt
+calibration.jsonl
+debug/
+__pycache__/
+
+# Built on each PC from that PC's game files (launcher.py runs `navgraph.py build`); they're Nexon's data,
+# so they aren't shared
+portals.json
+maps.json
+mobs.json
+npcs.json
+quests.json
+items.json
+item_icons.npz
+crafting.json
+travel.json
+
+# An installed copy's own files (launcher.py, install.ps1)
+runtime/
+runtime.new/
+version.txt
+game_path.txt
+data.stamp
+shortcut.txt
+app.ico
+launcher_log.txt
+build_log.txt
+
+# build_runtime.py's output (runtime.zip goes up as a GitHub release, not in the repository)
+build/
