@@ -15,6 +15,8 @@ RETRY_OCR = 1.0      # seconds between OCR attempts while the tag is lost
 DOWN = 2             # template matching runs at 1/DOWN resolution
 PAD = 4              # pixels of tag background kept around the text in the template
 FLAT = 0.15          # a patch with under this fraction of the template's contrast counts as flat
+UI_BOTTOM = 0.945    # share of the window height where the status bar starts: no name tag is ever drawn over it,
+                     # and its own copy of the name ("Rogue / Jogger") matches the tag's picture all too well
 
 
 def _gray(rgb):
@@ -64,6 +66,20 @@ class TagTracker:
         """New map: the camera jumps, so search afresh around the prediction."""
         self.box = None
 
+    def set_name(self, name):
+        """The character's name, read from the status bar (Tracker._read_name): look for exactly that tag."""
+        if name and name != self.name:
+            self.name, self.tmpl, self.box = name, None, None
+            print(f'[tag] tracking name tag "{name}"')
+
+    @staticmethod
+    def _is_name(text, name):
+        """Does an OCR'd word read as this name? A letter misread is fine, but not a longer name that has it inside
+        ("BlaJogger" standing on top of "Jogger": their tags overlap, and following the wrong one puts every marker
+        where they stand)."""
+        return (abs(len(text) - len(name)) <= 1
+                and difflib.SequenceMatcher(None, text.lower(), name.lower()).ratio() >= 0.8)
+
     def _read_status_bar(self, grab, gw, gh):
         # Bottom-left status bar shows level, job and character name.
         x0, y0 = 0, int(gh * 0.90)
@@ -92,7 +108,7 @@ class TagTracker:
     def _search(self, grab, x, y, rx, ry, gw, gh):
         th, tw = self.tmpl.shape[0] * DOWN, self.tmpl.shape[1] * DOWN
         x0, y0 = int(max(0, x - rx)), int(max(0, y - ry))
-        x1, y1 = int(min(gw, x + tw + rx)), int(min(gh, y + th + ry))
+        x1, y1 = int(min(gw, x + tw + rx)), int(min(gh * UI_BOTTOM, y + th + ry))
         if x1 - x0 < tw or y1 - y0 < th:
             return None
         win = _gray(grab(x0, y0, x1 - x0, y1 - y0))[::DOWN, ::DOWN]
@@ -105,15 +121,14 @@ class TagTracker:
 
     def _acquire(self, grab, pred, sw, gw, gh):
         x0, x1 = int(max(0, pred[0] - 170 * sw)), int(min(gw, pred[0] + 170 * sw))
-        y0, y1 = int(max(0, pred[1] - 90 * sw)), int(min(gh, pred[1] + 140 * sw))
+        y0, y1 = int(max(0, pred[1] - 90 * sw)), int(min(gh * UI_BOTTOM, pred[1] + 140 * sw))
         if x1 - x0 < 20 or y1 - y0 < 20:
             return None
         img = grab(x0, y0, x1 - x0, y1 - y0)
         names = {self.name} if self.name else self.candidates
         best = None
         for text, x, y, w, h in self.ocr.words(img):
-            score = max((difflib.SequenceMatcher(None, text.lower(), n.lower()).ratio() for n in names), default=0)
-            if score < 0.8:
+            if not any(self._is_name(text, n) for n in names):
                 continue
             d = (x0 + x + w / 2 - pred[0]) ** 2 + (y0 + y - pred[1]) ** 2
             if best is None or d < best[0]:

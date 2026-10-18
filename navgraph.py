@@ -91,6 +91,14 @@ def build():
                 'mobs': _spawns(img.get('life') or {}),
                 # how many of those spawn points are on a respawn timer (bosses etc.), useless for farming
                 'mob_timed': _timed_spawns(img.get('life') or {}),
+                # the ground: [x1, y1, x2, y2] of each foothold that isn't a wall (to stand the character on, see
+                # Tracker._on_ground)
+                'fh': [[fh['x1'], fh['y1'], fh['x2'], fh['y2']] for layer in (img.get('foothold') or {}).values()
+                       if isinstance(layer, dict) for group in layer.values() if isinstance(group, dict)
+                       for fh in group.values() if isinstance(fh, dict) and 'x1' in fh and fh['x1'] != fh['x2']],
+                # things to break or hit (wooden boxes, coconuts, herbs): [reactor id, x, y] (see gathering.py)
+                'reactors': [[str(v['id']), v['x'], v['y']] for v in (img.get('reactor') or {}).values()
+                             if isinstance(v, dict) and 'id' in v and 'x' in v and 'y' in v],
                 # camera limits (left, top, right, bottom)
                 'vr': [info['VRLeft'], info['VRTop'], info['VRRight'], info['VRBottom']]
                       if all(k in info for k in ('VRLeft', 'VRTop', 'VRRight', 'VRBottom')) else None,
@@ -160,7 +168,8 @@ def distances(graph, start, opts=None, travel_data=None):
 def route(graph, start, goal, opts=None, travel_data=None):
     """Best path as [(map_id, step taken to leave it), ..., (goal, None)], or None.
 
-    A step is {'kind': 'portal', 'portal': ...}, {'kind': 'scroll', 'item': ...} or {'kind': 'taxi', 'npc': [x, y]}.
+    A step is {'kind': 'portal', 'portal': ...}, {'kind': 'scroll', 'item': ...}, {'kind': 'taxi', 'npc': [x, y]}
+    or {'kind': 'boat', 'npc': [x, y], 'name': ..., 'note': ...}.
     """
     _, prev = _search(graph, start, opts, travel_data, goal)
     if goal not in prev:
@@ -177,7 +186,9 @@ def describe(step):
     if step['kind'] == 'scroll':
         return f'use {step["item"]}'
     if step['kind'] == 'taxi':
-        return 'take the Regular Cab'
+        return f"take {step['name']}'s taxi" if step.get('name') else 'take the Regular Cab'
+    if step['kind'] == 'boat':
+        return f'talk to {step["name"]} at x={step["npc"][0]} for the boat'
     p = step['portal']
     text = f'take portal "{p["name"]}" at x={p["x"]}'
     if p['script'] == 'market00':

@@ -103,7 +103,8 @@ def _box_lines(words, h):
 
 
 def _read_box(grab, gw, gh, ocr, last_title):
-    """(title box, quest count from the title or None, body image, title height) or Nones."""
+    """(title box, quest count from the title or None, body image, title height, body's top-left corner) or
+    Nones."""
     regions = []
     if last_title:  # where it was last time, then the usual top-right corner, then everywhere
         x, y, w, h = last_title
@@ -118,8 +119,8 @@ def _read_box(grab, gw, gh, ocr, last_title):
             # edge when docked there); quests are listed below the title bar.
             bx0, bx1 = max(0, int(x - 0.15 * w)), min(gw, int(x + 3.6 * w))
             by0, by1 = int(y + 1.5 * h), min(gh, int(y + 1.5 * h + gh * 0.4))
-            return (x, y, w, h), count, grab(bx0, by0, bx1 - bx0, by1 - by0), h
-    return None, None, None, None
+            return (x, y, w, h), count, grab(bx0, by0, bx1 - bx0, by1 - by0), h, (bx0, by0)
+    return None, None, None, None, None
 
 
 def read(grab, gw, gh, ocr, last_title=None):
@@ -127,21 +128,23 @@ def read(grab, gw, gh, ocr, last_title=None):
 
     grab(x, y, w, h) -> RGB array of the game window. Lines are as returned by _lines.
     """
-    title, _, body, h = _read_box(grab, gw, gh, ocr, last_title)
+    title, _, body, h, _ = _read_box(grab, gw, gh, ocr, last_title)
     if title is None:
         return None, [], None
     return title, _box_lines(ocr.words(body), h), body
 
 
 def read_entries(grab, gw, gh, ocr, qdata, last_title=None):
-    """(title box, parse() entries) for the Quest Helper box, or (None, []).
+    """(title box, parse() entries) for the Quest Helper box, or (None, []). Each entry's 'line' is (y, height)
+    of its name's first line in the window (for buttons beside it), when known.
 
     The plain reading is kept as it is. If it misses quests (fewer than the title's "(n/5)") or
     requirement lines, cleaned copies of the box (text only) are read too, adding quests it missed (up
     to n) and counts it couldn't read."""
-    title, count, body, h = _read_box(grab, gw, gh, ocr, last_title)
+    title, count, body, h, origin = _read_box(grab, gw, gh, ocr, last_title)
     if title is None:
         return None, []
+    by0 = origin[1]
     entries = parse(_box_lines(ocr.words(body), h), qdata, body, ocr)
     for cut in CLEAN_CUTS:
         if _whole(entries, qdata, count):
@@ -153,6 +156,9 @@ def read_entries(grab, gw, gh, ocr, qdata, last_title=None):
         if any(v[0] is None for e in extra if e['qid'] in new for v in e['progress'].values()):
             extra = parse(lines, qdata, body, ocr, reread=new)
         entries = _merge(entries, extra, qdata, count, h)
+    for e in entries:
+        if e.get('y') is not None:
+            e['line'] = (by0 + e['y'], h)
     return title, entries
 
 
@@ -213,13 +219,17 @@ def parse(lines, qdata, body=None, ocr=None, reread=None):
     def best_quest(text):
         t = _norm(text)
         if len(t) < 4:
-            return None, 0
-        # Compare against the start of each name too, since long names wrap onto a second line.
-        scored = ((max(difflib.SequenceMatcher(None, t, n).ratio(),
-                       difflib.SequenceMatcher(None, t, n[:len(t)]).ratio() if len(t) >= 12 else 0), qid)
-                  for qid, n in names.items())
-        score, qid = max(scored)
-        return qid, score
+            return None, 0, []
+        # Compare against the start of each name too, since long names wrap onto a second line. A start-of-name
+        # match counts a little less than the whole name, so "Luke the Security Guy" is that quest and not the
+        # start of "Luke the Security Guy's Wish to Travel" (on a tie, the higher quest id used to win).
+        scored = sorted(((max(difflib.SequenceMatcher(None, t, n).ratio(),
+                              0.98 * difflib.SequenceMatcher(None, t, n[:len(t)]).ratio() if len(t) >= 12 else 0), qid)
+                         for qid, n in names.items()), reverse=True)
+        score, qid = scored[0]
+        # near ties: "I Need to Find My Daughter" with its number dropped is 1 or 2 (picked below, by what it needs)
+        alts = [q for sc, q in scored if sc >= score - 0.01 and names[q] != names[qid]]
+        return qid, score, alts
 
     entries = []
     for line in lines:
@@ -228,9 +238,9 @@ def parse(lines, qdata, body=None, ocr=None, reread=None):
         if m and entries:
             entries[-1]['raw'].append((int(m.group(1)), int(m.group(2)), m.group(3), line))
             continue
-        qid, score = best_quest(text)
+        qid, score, alts = best_quest(text)
         if score >= 0.75 and not (entries and entries[-1]['qid'] == qid):
-            entries.append({'qid': qid, 'name': quests[qid]['name'], 'raw': [], 'y': line.get('y')})
+            entries.append({'qid': qid, 'name': quests[qid]['name'], 'raw': [], 'y': line.get('y'), 'alts': alts})
         elif entries and not entries[-1]['raw'] and score >= 0.75:
             continue  # second line of a wrapped quest name
         elif entries:
@@ -238,14 +248,17 @@ def parse(lines, qdata, body=None, ocr=None, reread=None):
     for e in entries:
         # Several quests can share a name ("Donating to Henesys" x17, each wanting a different item):
         # pick the one whose requirements match the progress lines under it.
-        same = [qid for qid, n in names.items() if n == names[e['qid']]]
-        if len(same) > 1 and e['raw']:
+        same = [qid for qid, n in names.items() if n == names[e['qid']]] + e.pop('alts', [])
+        if len(same) > 1 and not e['raw']:
+            e['qid'] = min(same)  # nothing under it to go by: the first of a series
+            e['name'] = quests[e['qid']]['name']
+        elif len(same) > 1:
             def fit(qid):
                 req_names = [_norm(qdata['mob_names'].get(i, '')) for i, _ in quests[qid]['mobs']] + \
                             [_norm(qdata['items'].get(i, '')) for i, _ in quests[qid]['items']]
                 return sum(max((difflib.SequenceMatcher(None, _norm(line[3]['text'] if line[3] else line[2]), r).ratio()
                                 for r in req_names), default=0) for line in e['raw'])
-            e['qid'] = max(same, key=fit)
+            e["qid"] = max(sorted(same), key=fit)  # (a tie: the first of a series)
             e['name'] = quests[e['qid']]['name']
         q = quests[e['qid']]
         reqs = [('mob', i, c, qdata['mob_names'].get(i, '')) for i, c in q['mobs']] + \

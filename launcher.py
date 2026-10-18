@@ -159,7 +159,7 @@ class Launcher:
         try:
             if navigator_running():
                 return self._finish('info', 'MSCW Navigator is already running.\n\n'
-                                            'Its Navigate button is at the top of the game window.')
+                                            'Its Search button is at the top of the game window.')
             if not self.test and self._update():
                 return self._restart()  # a new runtime was downloaded
             data = self._game_folder()

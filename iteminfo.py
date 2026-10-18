@@ -1,6 +1,6 @@
 """Item info panel: everything known about an item, opened by right-clicking it (see itemhover).
 
-From the game files: shop price (and what a full slot is worth), stack size, requirements and whether
+From the game files: shop price (and what a full stack is worth), stack size, requirements and whether
 you can use it, stats (and how they compare with what you're wearing), scrolls that fit it, what
 potions and scrolls do, flags, quests (including what your active quests still need), and monsters
 that probably drop it with the best place to hunt them and a button to navigate there.
@@ -58,11 +58,12 @@ def details(item_id, rec, ctx):
     add('Vendor', sell_text(rec))
     qty = ctx.get('qty')
     if qty and qty > 1 and rec['price'] and not rec.get('no_sale') and not rec.get('unit'):
-        add('', f'this stack of {qty:,} sells for {rec["price"] * qty:,} mesos')
+        add('', f'this stack of {qty:,} sells to vendor for {rec["price"] * qty:,} mesos')
     if rec.get('max', 1) > 1:
-        add('Stack', f'up to {rec["max"]:,} per slot')
+        add('Stack', f'stacks up to {rec["max"]:,}')
         if rec['price'] and not rec.get('no_sale') and not rec.get('unit'):
-            add('', f'a full slot sells to vendor for {rec["price"] * rec["max"]:,} mesos')
+            add('', f'a full stack sells to vendor for {rec["price"] * rec["max"]:,} mesos')
+    _market(item_id, ctx, add)
     _requirements(rec, ctx, add)
     _stats(item_id, rec, ctx, add)
     if rec['cat'] == 'Equip':
@@ -226,8 +227,19 @@ def _effects(rec, ctx, add):
 
 def _sources(item_id, rec, ctx, add):
     """Monsters that probably drop it (guessed from its name), with where to hunt them. Each monster's
-    Spots button lists all its maps in the Navigate window, to pick one."""
+    Spots button lists all its maps in the Search panel, to pick one."""
     mobs = list(dict.fromkeys(rec.get('sources') or ctx['qdata']['item_sources'].get(item_id) or []))
+    import gathering
+    where = gathering.spots(ctx['graph'], item_id) if not mobs and ctx.get('graph') else {}
+    if where:  # from breaking things on maps (wooden boxes, coconuts, ...)
+        src = gathering.SOURCES[item_id]
+        map_id = gathering.best_map(where, ctx['dist'], 15)
+        steps = ctx['dist'].get(map_id)
+        here = 'you are here' if map_id == ctx.get('current') else \
+            f'{steps} step{"s" * (steps != 1)} away' if steps is not None else 'no route from here'
+        add('Comes from', src.how[0].upper() + src.how[1:], ('go', map_id))
+        add('', f'best spot: {str(ctx["map_names"].get(map_id, map_id)).strip()} ({len(where[map_id])} '
+                f'{src.plural}, {here})')
     first = True
     for mob_id in mobs[:3]:
         mob = ctx['mobs'].get(mob_id)
@@ -245,14 +257,67 @@ def _sources(item_id, rec, ctx, add):
             add('', f'best spot: {ctx["map_names"].get(map_id, map_id)} ({count} spawns, {where})')
 
 
+MAX_SHOPS = 4  # player shops listed per item
+
+
+def _market(item_id, ctx, add):
+    """Free Market price and the player shops seen listing it, from MesoWatch (see mesowatch.py), as two tables.
+    ctx['market']: {'summary', 'item', 'state', 'link', 'places'} (places: map name -> map id, for Go)."""
+    m = ctx.get('market')
+    if not m:
+        return
+    from mesowatch import ago
+    s, doc = m['summary'], m['item']
+    if s is None:
+        add('Free Market', {'loading': 'looking it up on meso.watch\u2026',
+                            'offline': "couldn't reach meso.watch"}.get(m['state'], 'no Free Market data on meso.watch'))
+        return
+    per = ' /set' if s.get('unitBasis') == 'set' else ''
+    mesos = lambda v: f'{int(round(v)):,}'  # their figures can be fractional (e.g. quartiles)
+    if s.get('price'):
+        spread = (f'{mesos(s["p25"])}\u2013{mesos(s["p75"])}'
+                  if s.get('p25') and s.get('p75') and round(s['p25']) != round(s['p75']) else '\u2014')
+        basis = (f'{s["priceSales"]:,} sales, 24 h' if s.get('priceBasis') == '24h' and s.get('priceSales') else
+                 'last 10 sales' if s.get('priceBasis') == 'last10' else '\u2014')
+        trend = s.get('trend')
+        arrow = '\u25b2' if (trend or 0) > 0 else '\u25bc'
+        trend = '\u2014' if trend is None else 'steady' if abs(trend) < 0.05 else f'{arrow} {abs(trend):.0%}'
+        add('Free Market', '', ('table', {
+            'header': ['Typical', 'Most sales', 'Based on', 'Trend', 'Last sold'],
+            'rows': [[(mesos(s['price']) + per, 'strong'), (spread, None), (basis, 'dim'), (trend, None),
+                      (ago(s['lastSold']) if s.get('lastSold') else '\u2014', 'dim')]],
+            'note': 'Few sales so far, so these are rough.' if s.get('lowData') else None}))
+    else:
+        add('Free Market', 'no sales seen yet' + (f'; shops ask about {mesos(s["askMedian"])} mesos{per}'
+                                                   if s.get('askMedian') else ''))
+    # where to buy it: shops seen listing it; still up first, then ones whose location is known (so Go can take
+    # you there), then the most recently seen
+    listings = sorted((doc or {}).get('listings') or [],
+                      key=lambda l: (bool(l.get('up')), bool(l.get('location')), str(l.get('lastSeen') or '')), reverse=True)
+    if doc is None:
+        if m['state'] == 'loading':
+            add('Shops', 'looking up shops\u2026')
+    elif not listings:
+        add('Shops', 'none seen listing it lately')
+    else:
+        shown = listings[:MAX_SHOPS]
+        short = lambda where: where.replace('Free Market <', 'FM <') if where else '\u2014'
+        add('Shops', '', ('table', {
+            'header': ['Seller', 'Where', 'Price', 'Left', 'Seen'], 'align': ['w', 'w', 'e', 'e', 'e'],
+            'rows': [[(l.get('seller', '?'), None), (short(l.get('location')), None),
+                      (mesos(l.get('price') or 0) + per, 'strong'), (f'{l["stock"]:,}' if l.get('stock') else '\u2014', 'dim'),
+                      (ago(l['lastSeen']) if l.get('lastSeen') else '\u2014', 'dim')] for l in shown],
+            'row_go': [(m['places'][l['location']],) if l.get('location') in m['places'] else None for l in shown]}))
+    add('', 'From meso.watch: read from public streams, so it can be hours old', ('open', m['link'], 'Open'))
+
+
 def _crafting(item_id, ctx, add):
     """Recipes that make the item (with the master who teaches the craft) and recipes that use it."""
     craft = ctx.get('craft')
     if not craft:
         return
     disciplines, makes, uses = craft
-    items, name = ctx['items'], lambda i: ctx['items'].get(i, {}).get('name', f'item {i}')
-    value = lambda i, n: items.get(i, {}).get('price', 0) * n
+    name = lambda i: ctx['items'].get(i, {}).get('name', f'item {i}')
     for k, r in enumerate(makes.get(item_id, [])[:MAX_RECIPES]):
         d = disciplines.get(r['skill'], {})
         caption = f'{d.get("name", "Crafting")} Lv {r["level"]}'
@@ -262,50 +327,36 @@ def _crafting(item_id, ctx, add):
             map_id, (x, y) = next(iter(npc['maps'].items()))
             caption += f'  \u00b7  taught by {npc["name"]} ({ctx["map_names"].get(map_id, map_id)})'
             go = (map_id, (x, y, npc['name']))
-        # what goes in (each with what a vendor would pay for it), the fee, and what comes out
-        rows = [[(name(i), None), (f'{c:,}', None), (f'{value(i, c):,}', None)] for i, c in r['ingredients']]
+        # what goes in, the fee, and what comes out. The catalyst is optional: crafting with it is a gamble on
+        # better results (its own description: "When used while crafting ..., there is a chance ...").
+        rows = [[(name(i), None), (f'{c:,}', None)] for i, c in r['ingredients']]
         if r['additive']:
             i, c = r['additive']
-            rows.append([(f'{name(i)} (catalyst)', None), (f'{c:,}', None), (f'{value(i, c):,}', None)])
+            rows.append([(f'{name(i)} (optional)', 'dim'), (f'{c:,}', 'dim')])
         if r['meso']:
-            rows.append([('Fee', None), ('', None), (f'{r["meso"]:,}', None)])
-        got = value(*r['result'])
-        rows.append([(f'Makes: {name(r["result"][0])}', 'good'), (f'{r["result"][1]:,}', 'good'), (f'{got:,}', 'good')])
-        # The values are what vendors pay you (what they charge isn't in the game files), so the useful
-        # question is: with these materials in hand, is crafting and selling the result better than just
-        # selling the materials (and keeping the fee)?
-        used_up = r['ingredients'] + ([r['additive']] if r['additive'] else [])
-        cost = sum(value(i, c) for i, c in used_up) + r['meso']
-        verdict = None
-        if got or cost:
-            gain = got - cost
-            verdict = ((f'\u2713 crafting, then selling, earns {gain:,} more than selling the materials', 'good')
-                       if gain > 0 else
-                       (f'\u2717 selling the materials as they are earns {-gain:,} more than crafting'
-                        + (' (counting the fee)' if r['meso'] else ''), 'bad') if gain < 0 else
-                       ('crafting, then selling, earns the same as selling the materials', 'dim'))
+            rows.append([('Fee', None), (f'{r["meso"]:,} mesos', None)])
+        rows.append([(f'Makes: {name(r["result"][0])}', 'good'), (f'{r["result"][1]:,}', 'good')])
         add('Made by' if k == 0 else '', '', ('table', {
-            'caption': caption, 'title': True, 'rows': rows, 'header': ['', 'Qty', 'Sells for'], 'verdict': verdict,
-            'go': go, 'note': 'Sells for: what a vendor pays you. What vendors charge isn\'t in the game files.'}))
+            'caption': caption, 'title': True, 'rows': rows, 'header': ['', 'Qty'], 'go': go}))
     used = sorted(uses.get(item_id, []), key=lambda r: (r['level'], name(r['result'][0])))
     if not used:
         return
-    catalyst = lambda r: all(i != item_id for i, _ in r['ingredients'])  # used as the recipe's catalyst
+    catalyst = lambda r: all(i != item_id for i, _ in r['ingredients'])  # used as the recipe's (optional) catalyst
     only_catalyst = all(catalyst(r) for r in used)
     rows = []
     for r in used[:MAX_USES]:
         d = disciplines.get(r['skill'], {})
-        need = f'{(r["additive"] or [0, 1])[1]:,}' if catalyst(r) else             f'{next(c for i, c in r["ingredients"] if i == item_id):,}'
-        if catalyst(r) and not only_catalyst:
-            need += ' (catalyst)'
+        if catalyst(r):
+            need = f'{(r["additive"] or [0, 1])[1]:,}' + ('' if only_catalyst else ' (optional catalyst)')
+        else:
+            need = f'{next(c for i, c in r["ingredients"] if i == item_id):,}'
         result, count = r['result']
-        rows.append([(name(result) + (f' ×{count}' if count > 1 else ''), None), (need, None),
-                     (f'{d.get("name", "Craft")} {r["level"]}', 'dim'), (f'{value(result, count):,}', None)])
-    note = ('Uses: how many one craft takes' + (' (as the catalyst)' if only_catalyst else '')
-            + '  ·  Sells for: what a vendor pays for the result')
+        rows.append([(name(result) + (f' \u00d7{count}' if count > 1 else ''), None), (need, None),
+                     (f'{d.get("name", "Craft")} {r["level"]}', 'dim')])
+    note = 'Uses: how many one craft takes' + (", as an optional catalyst" if only_catalyst else '')
     if len(used) > MAX_USES:
-        note += f'  ·  {len(used) - MAX_USES} more recipes not shown'
-    add('Used to make', '', ('table', {'header': ['Makes', 'Uses', 'Craft Lv', 'Sells for'], 'rows': rows, 'note': note}))
+        note += f'  \u00b7  {len(used) - MAX_USES} more recipes not shown'
+    add('Used to make', '', ('table', {'header': ['Makes', 'Uses', 'Craft Lv'], 'rows': rows, 'note': note}))
 
 
 def _quests(item_id, ctx, add):
@@ -386,7 +437,8 @@ class ItemPanel:
                 row=r, column=0, sticky='nw', padx=(0, int(10 * k)))
             if action and action[0] == 'table':
                 spec = action[1]
-                self._table(grid, r, spec, k, wrap, (BG, DIM, FG), span=1 if spec.get('go') else 2)
+                self._table(grid, r, spec, k, wrap, (BG, DIM, FG), span=1 if spec.get('go') else 2,
+                            on_navigate=on_navigate)
                 if spec.get('go'):
                     go = tk.Label(grid, text='Go', font=('Segoe UI', 9, 'bold'), bg=ACCENT, fg=BG, padx=int(8 * k),
                                   cursor='hand2')
@@ -397,7 +449,9 @@ class ItemPanel:
             tk.Label(grid, text=text, font=('Segoe UI', 9), bg=BG, fg=colour, anchor='w', justify='left',
                      wraplength=wrap - int(130 * k)).grid(row=r, column=1, sticky='w')
             if action and (action[0] in ('go', 'open') or action[0] == 'spots' and on_spots):
-                go = tk.Label(grid, text={'go': 'Go', 'open': 'Search', 'spots': 'Spots'}[action[0]],
+                text = action[2] if action[0] == 'open' and len(action) > 2 else \
+                    {'go': 'Go', 'open': 'Search', 'spots': 'Spots'}[action[0]]
+                go = tk.Label(grid, text=text,
                               font=('Segoe UI', 9, 'bold'), bg=ACCENT, fg=BG, padx=int(8 * k), cursor='hand2')
                 go.grid(row=r, column=2, sticky='e', padx=(int(8 * k), 0))
                 if action[0] == 'go':  # navigate to a map (and an NPC on it)
@@ -410,16 +464,19 @@ class ItemPanel:
         self.hwnd = prepare_window(self.win)
 
     @staticmethod
-    def _table(grid, row, spec, k, wrap, colours, span=2):
+    def _table(grid, row, spec, k, wrap, colours, span=2, on_navigate=None):
         """A small table: optional caption, column titles (and a second title row), rows of cells
-        (text, colour: None / 'good' / 'bad' / 'dim'; coloured cells are bold), optional footnote.
-        The first column is left-aligned, the rest right-aligned."""
+        (text, colour: None / 'strong' / 'good' / 'bad' / 'dim'; all but None and dim are bold), optional
+        footnote. The first column is left-aligned and the rest right-aligned, unless spec['align'] gives
+        'w'/'e' per column. spec['row_go']: per row, arguments for on_navigate (a Go button) or None."""
         BG, DIM, FG = colours
-        tint = {'good': GOOD, 'bad': BAD, 'dim': DIM}
+        tint = {'good': GOOD, 'bad': BAD, 'dim': DIM, 'strong': FG}
         box = tk.Frame(grid, bg=BG)
         box.grid(row=row, column=1, columnspan=span, sticky='w', pady=(0, int(4 * k)))
         n, r = len(spec['header']), 0
-        side = lambda c: ('w', 'w') if c == 0 else ('e', 'e')
+        align = spec.get('align') or ['w'] + ['e'] * (n - 1)
+        side = lambda c: (align[c], align[c]) if c < len(align) else ('e', 'e')
+        row_go = spec.get('row_go') or []
         pad = (0, int(14 * k))
         if spec.get('caption'):  # a title (e.g. a recipe's craft and teacher) is white, a plain caption grey
             tk.Label(box, text=spec['caption'], font=('Segoe UI', 9), bg=BG, fg=FG if spec.get('title') else DIM,
@@ -433,11 +490,17 @@ class ItemPanel:
                 tk.Label(box, text=title, font=('Segoe UI', size, 'bold'), bg=BG, fg=DIM, anchor=side(c)[0]).grid(
                     row=r, column=c, sticky=side(c)[1], padx=pad)
             r += 1
-        for cells in spec['rows']:
+        for i, cells in enumerate(spec['rows']):
             for c, (text, colour) in enumerate(cells):
-                tk.Label(box, text=text, font=('Segoe UI', 9, 'bold' if colour in ('good', 'bad') else 'normal'),
+                tk.Label(box, text=text, font=('Segoe UI', 9, 'bold' if colour in ('good', 'bad', 'strong') else 'normal'),
                          bg=BG, fg=tint.get(colour, FG), anchor=side(c)[0]).grid(row=r, column=c, sticky=side(c)[1],
                                                                                    padx=pad)
+            if i < len(row_go) and row_go[i] and on_navigate:  # a Go button at the end of this row
+                from picker import ACCENT
+                go = tk.Label(box, text='Go', font=('Segoe UI', 8, 'bold'), bg=ACCENT, fg=BG, padx=int(6 * k),
+                              cursor='hand2')
+                go.grid(row=r, column=n, sticky='w', pady=int(1 * k))
+                go.bind('<Button-1>', lambda e, g=row_go[i]: on_navigate(*g))
             r += 1
         if spec.get('note'):
             tk.Label(box, text=spec['note'], font=('Segoe UI', 8), bg=BG, fg=DIM, anchor='w', justify='left',

@@ -1,0 +1,588 @@
+{
+  "source": {
+    "name": "Maple Classic Guide by TokiLee",
+    "url": "https://mapleclassic.guide/leveling",
+    "note": "Routes summarised from the guide (levels 1-45, as of October 2026), with its maps matched to the game's map ids."
+  },
+  "routes": {
+    "A": {
+      "name": "Route A",
+      "summary": "Henesys, Kerning City, then Ellinia. More quests done along the way, so more mesos early; smaller, busier maps."
+    },
+    "B": {
+      "name": "Route B",
+      "summary": "Ellinia only: Slime Tree, Forest of Wisdom, Horny Mushroom Tree. Bigger maps and less travel; fewer quests."
+    }
+  },
+  "stages": [
+    {
+      "levels": [
+        1,
+        8
+      ],
+      "route": "both",
+      "title": "Maple Island",
+      "map": 50,
+      "maps": [
+        50,
+        1010,
+        1000,
+        1002
+      ],
+      "steps": [
+        "Do the Maple Island quests on the way to A Split Road (skip Todd's hunting lesson if it's crowded).",
+        "Hunt at A Split Road to level 5.",
+        "At 5, do the quests in Amherst; get an Orange Mushroom Cap from the top right of The Field West of Amherst (or Dangerous Forest if it's crowded).",
+        "Back to A Split Road until level 8, then hand in Biggs's Collection of Items.",
+        "At 8, sail to Victoria Island."
+      ],
+      "collect": [
+        [
+          "Blue Snail Shell",
+          10
+        ],
+        [
+          "Orange Mushroom Cap",
+          1
+        ]
+      ],
+      "complete": [
+        "Borrowing Sera's Mirror",
+        "Bringing a Mirror to Heena",
+        "Roger's Apple",
+        "What Sen wants to eat",
+        "Returning to Nina",
+        "Todd's How-to-Hunt",
+        "Sam's Suggestion",
+        "Mai's Training",
+        "Mai's Final Training",
+        "Letter for Lucas",
+        "Lucas's Reply",
+        "Rain's Maple Quiz",
+        "Pio's Collecting Recycled Goods",
+        "Biggs's Collection of Items"
+      ]
+    },
+    {
+      "levels": [
+        8,
+        10
+      ],
+      "route": "both",
+      "title": "Thicket Around the Beach",
+      "map": 10000011,
+      "maps": [
+        10000000,
+        10000011,
+        10000012
+      ],
+      "steps": [
+        "In Lith Harbor, pick up Olaf's First Training and Teo's Weird Hobby; finish both at Thicket Around the Beach I (1 Slime Bubble).",
+        "Pick up Olaf's Second Training and Teo's Even Weirder Hobby; finish them at Thicket Around the Beach II (1 Pig's Head).",
+        "Hunt at either Thicket until 10, collecting Squishy Liquid and Tree Branches for I'm Bored 2. Beginners lose no EXP on death, so dying is a free trip to town.",
+        "At 10, hand in Olaf's Second Training, Teo's Even Weirder Hobby and Phil's Call in Lith Harbor.",
+        "Then make your first job advancement, and pick a route.",
+        "Route A: pick up Don Hwang's Request (costs 1,000 mesos) and JM From tha Streetz Looking for a Partner in Kerning City.",
+        "Route B: pick up The Stump Horror Story and Silas Irons in Need of an Apprentice in Perion."
+      ],
+      "collect": [
+        [
+          "Slime Bubble",
+          1
+        ],
+        [
+          "Pig's Head",
+          1
+        ],
+        [
+          "Squishy Liquid",
+          12
+        ],
+        [
+          "Tree Branch",
+          12
+        ]
+      ],
+      "complete": [
+        "Olaf's First Training",
+        "Olaf's Second Training",
+        "Teo's Weird Hobby",
+        "Teo's Even Weirder Hobby",
+        "Phil's Call"
+      ],
+      "pick up": {
+        "A": [
+          "Don Hwang's Request",
+          "JM From tha Streetz Looking for a Partner"
+        ],
+        "B": [
+          "The Stump Horror Story",
+          "Silas Irons in Need of an Apprentice"
+        ]
+      }
+    },
+    {
+      "levels": [
+        10,
+        12
+      ],
+      "route": "A",
+      "title": "Mushroom Garden",
+      "map": 10001021,
+      "maps": [
+        10001000,
+        10001021
+      ],
+      "steps": [
+        "In Henesys, pick up The Reason Behind the Mushroom Studies and Vicious in Need of an Apprentice (its branches are hard to get; this route doesn't finish it).",
+        "Hunt Orange Mushrooms at Mushroom Garden until 12."
+      ],
+      "collect": [
+        [
+          "Mushroom Spore",
+          10
+        ],
+        [
+          "Orange Mushroom Cap",
+          20
+        ]
+      ],
+      "pick up": [
+        "The Reason Behind the Mushroom Studies",
+        "Vicious in Need of an Apprentice"
+      ]
+    },
+    {
+      "levels": [
+        12,
+        14
+      ],
+      "route": "A",
+      "title": "The Rain-Forest East of Henesys",
+      "map": 10001070,
+      "maps": [
+        10001070
+      ],
+      "steps": [
+        "Hunt Pigs here until 14."
+      ],
+      "collect": [
+        [
+          "Pig's Ribbon",
+          10
+        ],
+        [
+          "Leather",
+          5
+        ]
+      ]
+    },
+    {
+      "levels": [
+        14,
+        14
+      ],
+      "route": "A",
+      "title": "Errands: Henesys, Free Market, Perion, Kerning",
+      "map": 10001000,
+      "maps": [
+        10001000,
+        80002000,
+        10004000,
+        10003000
+      ],
+      "steps": [
+        "Hand in The Reason Behind the Mushroom Studies.",
+        "Take the Citizenship quest: do To Henesys, the Prairie Town, then take To the Gray City, Kerning City.",
+        "In the Free Market, do the Welcome to the Free Market! questline.",
+        "In Perion, pick up The Stump Horror Story, Fixing Blackbull's House and Silas Irons in Need of an Apprentice.",
+        "In Kerning City, hand in I'm Bored 1 and 2, Don Hwang's Request, JM From tha Streetz Looking for a Partner and To the Gray City, Kerning City; pick up Shumi's Request.",
+        "Do the citizen daily in the town you become a citizen of (Henesys citizens can do it in the next stage)."
+      ],
+      "complete": [
+        "The Reason Behind the Mushroom Studies",
+        "To Henesys, the Prairie Town",
+        "To the Gray City, Kerning City",
+        "Welcome to the Free Market!",
+        "I'm Bored 1",
+        "I'm Bored 2",
+        "Don Hwang's Request",
+        "JM From tha Streetz Looking for a Partner"
+      ],
+      "pick up": [
+        "To the Gray City, Kerning City",
+        "The Stump Horror Story",
+        "Fixing Blackbull's House",
+        "Silas Irons in Need of an Apprentice",
+        "Shumi's Request"
+      ]
+    },
+    {
+      "levels": [
+        14,
+        20
+      ],
+      "route": "A",
+      "title": "Caution Falling Down / Northern Top of Construction Site",
+      "map": 10003081,
+      "maps": [
+        10003011,
+        10003081,
+        10007000
+      ],
+      "steps": [
+        "Hunt Blue Mushrooms and Stumps at either map until 20 (someone in the group needs to hit Blue Mushrooms reliably: at 14, archers, mages and DEX warriors can).",
+        "Northern Top of Construction Site also has Dark Stumps, for Leaf.",
+        "Get Pure Water and a Salad at Florina Beach (keep the Salad for Luke the Security Guy later).",
+        "At 18, pick up Alex's Request in Kerning City."
+      ],
+      "collect": [
+        [
+          "Octopus Leg",
+          20
+        ],
+        [
+          "Pure Water",
+          1
+        ],
+        [
+          "Salad",
+          1
+        ],
+        [
+          "Tree Branch",
+          10
+        ],
+        [
+          "Leaf",
+          25
+        ],
+        [
+          "Blue Mushroom Cap",
+          50
+        ]
+      ],
+      "pick up": [
+        "Alex's Request"
+      ]
+    },
+    {
+      "levels": [
+        20,
+        20
+      ],
+      "route": "A",
+      "title": "Errands: Kerning, Lith Harbor, Perion, Henesys",
+      "map": 10004000,
+      "maps": [
+        10003000,
+        10000000,
+        10004000,
+        10001000,
+        10001081
+      ],
+      "steps": [
+        "In Kerning City, hand Shumi's Request and Andre's Request in to Nella.",
+        "In Lith Harbor, pick up Jane and the Mushroom.",
+        "In Perion, hand in The Stump Horror Story, Fixing Blackbull's House and Silas Irons in Need of an Apprentice.",
+        "In Henesys, hand in Alex's Request; pick up Talking to Stan, Pia and the Blue Mushroom and I Need to Find My Daughter, and do I Need to Find My Daughter with the return scrolls it gives.",
+        "Hunt more Blue Mushrooms (Kerning or The Blue Mushroom Forest) for the kill counts of Talking to Stan and Jane and the Mushroom.",
+        "Then go to Ellinia (ranged classes can go straight to Transfer Area instead)."
+      ],
+      "complete": [
+        "Alex's Request",
+        "Shumi's Request",
+        "Andre's Request",
+        "Silas Irons in Need of an Apprentice",
+        "The Stump Horror Story",
+        "Fixing Blackbull's House",
+        "I Need to Find My Daughter"
+      ],
+      "pick up": [
+        "Jane and the Mushroom",
+        "Talking to Stan",
+        "Pia and the Blue Mushroom"
+      ]
+    },
+    {
+      "levels": [
+        20,
+        25
+      ],
+      "route": "A",
+      "title": "Horny Mushroom Tree",
+      "map": 10002073,
+      "maps": [
+        10002000,
+        10002073
+      ],
+      "steps": [
+        "In Ellinia, pick up I Need Help on My Homework! and How to Enjoy Mushrooms (from Shane).",
+        "Hunt at Horny Mushroom Tree (Tree Dungeon, Forest Up North II) until 25; do How to Enjoy Mushrooms and How to Enjoy Mushrooms Even More when you go back to restock.",
+        "Ranged classes can move to Transfer Area once they mostly one-shot Stirges; Damp Forest groups stay here until 25.",
+        "Hand in all the remaining quests."
+      ],
+      "collect": [
+        [
+          "Squishy Liquid",
+          10
+        ],
+        [
+          "Slime Bubble",
+          3
+        ],
+        [
+          "Leaf",
+          10
+        ]
+      ],
+      "complete": [
+        "I Need Help on My Homework!",
+        "How to Enjoy Mushrooms",
+        "How to Enjoy Mushrooms Even More",
+        "Jane and the Mushroom",
+        "Pia and the Blue Mushroom",
+        "Talking to Stan"
+      ]
+    },
+    {
+      "levels": [
+        10,
+        14
+      ],
+      "route": "B",
+      "title": "Slime Tree",
+      "map": 10002031,
+      "maps": [
+        10002000,
+        10002031
+      ],
+      "steps": [
+        "Hunt Slimes at Slime Tree (Dungeon, Southern Forest I) until 14.",
+        "On the way there, collect Tree Branches and Leaves.",
+        "Hand in I Need Help on My Homework! once you have 10 Leaves, 10 Squishy Liquids and 3 Slime Bubbles."
+      ],
+      "collect": [
+        [
+          "Squishy Liquid",
+          12
+        ],
+        [
+          "Tree Branch",
+          22
+        ],
+        [
+          "Leaf",
+          20
+        ],
+        [
+          "Slime Bubble",
+          3
+        ]
+      ],
+      "complete": [
+        "I Need Help on My Homework!"
+      ]
+    },
+    {
+      "levels": [
+        14,
+        14
+      ],
+      "route": "B",
+      "title": "Errands: Henesys, Free Market, Perion, Kerning",
+      "map": 10001000,
+      "maps": [
+        10001000,
+        80002000,
+        10004000,
+        10003000
+      ],
+      "steps": [
+        "Have 12 Squishy Liquids and 12 Tree Branches, and The Stump Horror Story ready to hand in.",
+        "Take the Citizenship quest: do To Henesys, the Prairie Town in Henesys, then take To the Gray City, Kerning City from Arthur.",
+        "In the Free Market, do the Welcome to the Free Market! questline (it ends in Perion).",
+        "In Perion, hand in The Stump Horror Story and Silas Irons in Need of an Apprentice; pick up Fixing Blackbull's House.",
+        "In Kerning City, hand in To the Gray City, Kerning City, and hand in I'm Bored 1 and 2 to Icarus.",
+        "Become a citizen of Henesys or Kerning City and do the citizen daily. Keep 10 Tree Branches and 10 Leaves for the next stage."
+      ],
+      "complete": [
+        "To Henesys, the Prairie Town",
+        "To the Gray City, Kerning City",
+        "Welcome to the Free Market!",
+        "The Stump Horror Story",
+        "Silas Irons in Need of an Apprentice",
+        "I'm Bored 1",
+        "I'm Bored 2"
+      ],
+      "pick up": [
+        "To the Gray City, Kerning City",
+        "Fixing Blackbull's House"
+      ]
+    },
+    {
+      "levels": [
+        14,
+        20
+      ],
+      "route": "B",
+      "title": "The Forest of Wisdom",
+      "map": 10002020,
+      "maps": [
+        10002020
+      ],
+      "steps": [
+        "Hunt at The Forest of Wisdom until 18-20.",
+        "When you restock, pick up How to Enjoy Mushrooms (and How to Enjoy Mushrooms Even More) from Shane.",
+        "Hand in Fixing Blackbull's House once you have 10 Tree Branches and 10 Leaves."
+      ],
+      "collect": [
+        [
+          "Tree Branch",
+          10
+        ],
+        [
+          "Leaf",
+          10
+        ]
+      ],
+      "complete": [
+        "Fixing Blackbull's House"
+      ],
+      "pick up": [
+        "How to Enjoy Mushrooms"
+      ]
+    },
+    {
+      "levels": [
+        18,
+        25
+      ],
+      "route": "B",
+      "title": "Horny Mushroom Tree",
+      "map": 10002073,
+      "maps": [
+        10002073
+      ],
+      "steps": [
+        "From 18-20, hunt at Horny Mushroom Tree (Tree Dungeon, Forest Up North II) until 22-25.",
+        "Ranged classes can move to Transfer Area once they mostly one-shot Stirges; Damp Forest groups stay until 24-25.",
+        "STR Warriors coming early need the accuracy: more than level 5 Precise Strikes at 18 (Sniper Potions from Henesys or Perion help)."
+      ]
+    },
+    {
+      "levels": [
+        20,
+        35
+      ],
+      "route": "both",
+      "title": "Transfer Area (ranged classes)",
+      "map": 10003062,
+      "maps": [
+        10003062
+      ],
+      "steps": [
+        "Hunt Stirges here until 35. Its spawn rate was cut to 0.7x, so it's busier than it was.",
+        "At 23, do Stranger's Request, then pick up Stranger's Identity for later.",
+        "With friends at Damp Forest, pick up Luke the Security Guy and do its Jr. Necki part (a Salad is sold at Florina Beach).",
+        "Do Kerning PQ at least once (for Proof of Companionship), ideally before level 31."
+      ],
+      "complete": [
+        "Luke the Security Guy",
+        "Stranger's Request",
+        "Proof of Companionship"
+      ],
+      "pick up": [
+        "Stranger's Identity"
+      ]
+    },
+    {
+      "levels": [
+        25,
+        35
+      ],
+      "route": "both",
+      "title": "Damp Forest (party of 4)",
+      "map": 10005031,
+      "maps": [
+        10004000,
+        10005031
+      ],
+      "steps": [
+        "Hunt here until 35 in a party of 4 (two at the bottom, one in the middle, one at the top). Going from Perion is fastest; Warrior Potions are sold there.",
+        "Collect Squishy Liquids, Octopus Legs and Leaves for Getting Arcon's Blood later.",
+        "Pick up Luke the Security Guy on the way; with friends at Transfer Area, also do the Stirge part of Stranger's Request, then pick up Stranger's Identity.",
+        "Do Kerning PQ at least once (for Proof of Companionship), ideally before level 31."
+      ],
+      "collect": [
+        [
+          "Squishy Liquid",
+          30
+        ],
+        [
+          "Octopus Leg",
+          30
+        ],
+        [
+          "Leaf",
+          30
+        ]
+      ],
+      "complete": [
+        "Luke the Security Guy",
+        "Stranger's Request",
+        "Proof of Companionship"
+      ],
+      "pick up": [
+        "Stranger's Identity"
+      ]
+    },
+    {
+      "levels": [
+        35,
+        45
+      ],
+      "route": "both",
+      "title": "Ant Tunnel I (if you one-shot Zombie Mushrooms)",
+      "map": 10005060,
+      "maps": [
+        10001000,
+        10005060,
+        10005063
+      ],
+      "steps": [
+        "Only if you mostly one-shot Zombie Mushrooms; otherwise Transfer Area or Damp Forest is better.",
+        "First, pick up Maya of Henesys and do it up to Arcon's Blood?.",
+        "Hunt until 40-45; the upper middle and upper bottom are best. Ant Tunnel IV is an alternative (its middle spawns poorly)."
+      ],
+      "complete": [
+        "Maya of Henesys",
+        "Stranger's Identity"
+      ]
+    },
+    {
+      "levels": [
+        35,
+        45
+      ],
+      "route": "both",
+      "title": "Land of Wild Boar (party of 4)",
+      "map": 10004041,
+      "maps": [
+        10004041
+      ],
+      "steps": [
+        "Hunt until 40-45, best in a party of 4.",
+        "Less EXP than Ant Tunnel I's best spots, but more mesos from crafting-material drops."
+      ]
+    }
+  ],
+  "also_good": [
+    10002023,
+    10007010,
+    10007020,
+    10007021,
+    10005054,
+    10005077
+  ]
+}

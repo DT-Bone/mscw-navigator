@@ -135,6 +135,20 @@ JOB_CLASSES = {
 }
 
 
+def read_name(words):
+    """The character's name: the word right under the job name on the status bar ('Rogue' over 'Jogger'), or None.
+    words: OCR words (text, x, y, w, h). Names are one word of letters and digits."""
+    job_words = {n.split()[0].lower() for names in JOB_CLASSES.values() for n in names}
+    for text, x, y, w, h in words:
+        if text.lower() in job_words:
+            below = [v for v in words if h * 0.6 < v[2] - y < h * 2.2 and abs(v[1] - x) < h * 1.5]
+            if below:
+                name = min(below, key=lambda v: v[2])[0]
+                if re.fullmatch(r'[A-Za-z0-9]{2,13}', name):
+                    return name
+    return None
+
+
 def read_job(words):
     """(job name, job class) from the status bar's OCR words (e.g. ('Archer', 'Bowman')), or None."""
     text = ' '.join(w[0] for w in words).lower()

@@ -89,6 +89,69 @@ def find_wells(arr):
     return wells
 
 
+def find_collapsed(arr, scale):
+    """The minimap minimised to its title bar, as (x0, y0, x1, y1), or None. The game shows only the bar on maps
+    without a minimap picture (shops, the job instructors' rooms) and on some big ones, and the player can do it
+    with its "-" button. Found by its orange WORLD button (MiniMap.img/BtMap: 36x12 UI px, an orange face 34x10
+    inside a dark edge) at the right end of a light grey bar. An open minimap whose frame wasn't found (its
+    bottom covered, say) has the same title and button; its grey frame right under them tells it apart."""
+    h, w = arr.shape[:2]
+    k = 2 if scale >= 1.5 else 1  # searched at half size on big windows (the button is still ~50x15 px there)
+    sub = arr[:int(h * 0.5):k, :int(w * 0.6):k].astype(np.int16)
+    r, g, b = sub[..., 0], sub[..., 1], sub[..., 2]
+    orange = (r >= 170) & (g >= 100) & (g <= 205) & (b <= 100) & (r - b >= 110)
+    bw, bh = max(8, int(round(34 * scale / k))), max(4, int(round(10 * scale / k)))
+    if orange.shape[0] <= bh or orange.shape[1] <= bw or orange.sum() < bw * bh * 0.4:
+        return None
+    s = np.zeros((orange.shape[0] + 1, orange.shape[1] + 1), np.int32)
+    s[1:, 1:] = orange.cumsum(0).cumsum(1)
+    fill = (s[bh:, bw:] - s[:-bh, bw:] - s[bh:, :-bw] + s[:-bh, :-bw]) / (bw * bh)
+    for _ in range(3):  # the best few orange button-sized spots
+        y, x = np.unravel_index(int(np.argmax(fill)), fill.shape)
+        if fill[y, x] < 0.55:
+            return None
+        bar = _bar_left_of(arr, int(x) * k, int(y) * k, bw * k, bh * k, scale)
+        if bar:
+            return bar
+        fill[max(0, y - bh):y + bh, max(0, x - bw):x + bw] = 0
+    return None
+
+
+def bar_shown(strip, scale):
+    """Is a minimised minimap's bar (found by find_collapsed) still there? Its WORLD button, at the strip's right end."""
+    a = strip[:, -int(45 * scale):].astype(np.int16)
+    r, g, b = a[..., 0], a[..., 1], a[..., 2]
+    return ((r >= 170) & (g >= 100) & (g <= 205) & (b <= 100) & (r - b >= 110)).mean() >= 0.2
+
+
+def _light(a):
+    """Light neutral grey pixels (the minimap's frame and title bar)."""
+    return ((a.max(axis=-1) - a.min(axis=-1)) <= 8) & (a.min(axis=-1) >= 190)
+
+
+def _bar_left_of(arr, bx, by, bw, bh, scale):
+    """The title bar a WORLD button (orange face at bx, by, bw x bh) ends, or None if it doesn't look like one."""
+    row = by - int(round(2 * scale))  # just above the buttons: the bar's plain background all along
+    if row < 0:
+        return None
+    line = _light(arr[row, :bx].astype(np.int16))
+    x, gap, left = bx - 1, 0, None
+    while x >= 0 and gap <= 20 * scale:
+        if line[x]:
+            left, gap = x, 0
+        else:
+            gap += 1
+        x -= 1
+    if left is None or bx - left < 80 * scale or line[left:bx].mean() < 0.6:
+        return None  # a title needs room
+    x0, y0 = max(0, left - int(3 * scale)), max(0, by - int(round(5 * scale)))
+    x1, y1 = min(arr.shape[1], bx + bw + int(4 * scale)), min(arr.shape[0], by + bh + int(round(5 * scale)))
+    below = arr[y1 + int(scale):y1 + int(12 * scale), x0:x1].astype(np.int16)
+    if below.size and (_light(below).mean(axis=1) >= 0.6).any():
+        return None  # the open minimap's frame goes on under the title
+    return x0, y0, x1, y1
+
+
 def find_dot(arr, well, scale=None, hint=None):
     """Centre of the player's yellow minimap dot inside `well`, or None. scale: the UI scale (window
     height / 768); estimated from the well's frame when not given.

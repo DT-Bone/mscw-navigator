@@ -15,6 +15,7 @@ import mss
 import numpy as np
 
 import items as item_index
+import questbook
 from questlog import _lines
 
 POLL = 0.05            # seconds between right button checks
@@ -108,7 +109,8 @@ def _segments(line):
 class HoverReader(threading.Thread):
     """Publishes `clicked` for each right-click in the game window: the item whose tooltip is open there
     ({'name', 'ids', 'others', 'x', 'y', 'qty', ...}; 'ids' None when it isn't on an item), plus 't' (when)
-    and 'cursor' (where, game window coords)."""
+    and 'cursor' (where, game window coords). A right-click on a quest's name instead (the quest book's list,
+    see questbook.py) publishes `quest_clicked`: {'qid', 't'}."""
 
     def __init__(self, tracker, grab, make_ocr):
         """grab(sct, left, top, width, height) -> RGB array of the screen; make_ocr() -> an OCR client."""
@@ -120,13 +122,16 @@ class HoverReader(threading.Thread):
         self.clicked = None  # the last right-click (see the class docstring)
         self.inventory = None  # the inventory reader (inventory.InventoryReader), for stack sizes
         self.right_down = False
+        self.qdata = None                  # quest data, for right-clicks on quest names (set by the overlay)
+        self.quest_context = lambda: ((), None)  # (quests in the Quest Helper box, job class), set by the overlay
+        self.quest_clicked = None
 
     def run(self):
         ocr, sct = self.make_ocr(), getattr(mss, 'MSS', mss.mss)()
         while True:
             time.sleep(POLL)
             st = self.tracker.state
-            if not self.enabled or not st.get('visible'):
+            if not (self.enabled or self.qdata) or not st.get('visible'):
                 continue
             gx, gy, gw, gh = st['rect']
             sx, sy = cursor_pos()
@@ -144,17 +149,35 @@ class HoverReader(threading.Thread):
     def _own_rects(self):
         return own_rects(self.tracker)
 
+    def _quest(self, ocr, grab, pos, gw, gh):
+        """The quest whose name was right-clicked (the line of text under the cursor), or None."""
+        x0, y0, x1, y1 = questbook.area(*pos, gw, gh)
+        img = self._capture(grab, x0, y0, x1, y1)
+        prefer, job_class = self.quest_context()
+        return questbook.quest_under(ocr.words(img), pos[0] - x0, pos[1] - y0, self.qdata, prefer, job_class)
+
     def _right_click(self, ocr, grab, pos, gw, gh):
-        r = None
+        r = quest = None
         for attempt in range(2):  # a quick click can beat the tooltip: look once more a moment later
             if attempt:
                 time.sleep(RETRY_AFTER)
-            try:
-                r = self._read(ocr, grab, pos, gw, gh)
-            except Exception as ex:
-                print(f'[item] read failed: {ex!r}')
-            if r:
-                break
+            if self.enabled:
+                try:
+                    r = self._read(ocr, grab, pos, gw, gh)
+                except Exception as ex:
+                    print(f'[item] read failed: {ex!r}')
+                if r:
+                    break
+            if not attempt and self.qdata:  # no item tooltip: a quest's name? (the quest book)
+                try:
+                    quest = self._quest(ocr, grab, pos, gw, gh)
+                except Exception as ex:
+                    print(f'[quest] read failed: {ex!r}')
+                if quest or not self.enabled:
+                    break
+        if quest:
+            self.quest_clicked = {'qid': quest, 't': time.time()}
+            print(f'[quest] right-click on {self.qdata["quests"][quest]["name"]}')
         # every right-click is reported (ids None when not on an item): one on nothing closes the panel
         self.clicked = {**(r or {}), 'ids': r['ids'] if r else None, 't': time.time(), 'cursor': pos}
         if r:

@@ -3,6 +3,8 @@ nav_prefs*.json
 nav_log.txt
 calibration.jsonl
 debug/
+kpq_questions.txt
+kpq_dialogs/
 __pycache__/
 
 # Built on each PC from that PC's game files (launcher.py runs `navgraph.py build`); they're Nexon's data,
@@ -16,6 +18,9 @@ items.json
 item_icons.npz
 crafting.json
 travel.json
+
+# MesoWatch look-ups, kept for a few hours (mesowatch.py)
+mesowatch_cache/
 
 # An installed copy's own files (launcher.py, install.ps1)
 runtime/

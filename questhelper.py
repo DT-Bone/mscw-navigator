@@ -5,6 +5,7 @@ sets the navigator's destination (an NPC, or the best map to hunt in).
 """
 import tkinter as tk
 
+import gathering
 from navgraph import distances
 from quests import label as quest_label
 
@@ -64,6 +65,7 @@ class QuestGuide:
         kill_mobs = [m for m, _ in q['mobs']]
         # One line per requirement; group everything that can be done by hunting into one step.
         hunt_lines, hunt_mobs, hunt_reqs, other, crafts = [], [], [], [], []
+        gathers = {}  # things to break (boxes, coconuts, ...) -> one step for every item they give
         for mob, count in q['mobs']:
             hunt_lines.append(f'Kill {count} {self.qdata["mob_names"].get(mob, mob)}')
             hunt_mobs.append([mob])
@@ -77,6 +79,11 @@ class QuestGuide:
                 hunt_lines.append(plan[1])
                 hunt_mobs.append(plan[2])
                 hunt_reqs.append(('item', item))
+            elif plan[0] == 'gather':
+                g = gathers.setdefault(gathering.SOURCES[item], {'kind': 'gather', 'items': [], 'lines': [], 'reqs': []})
+                g['items'].append(item)
+                g['lines'].append(plan[1])
+                g['reqs'].append(('item', item))
             elif plan[0] == 'craft':
                 crafts.append({'kind': 'craft', 'npc': plan[2], 'text': plan[1], 'lines': [plan[1]],
                                'reqs': [('item', item)]})
@@ -85,6 +92,10 @@ class QuestGuide:
         for lines, groups, reqs in self._split_hunts(hunt_lines, hunt_mobs, hunt_reqs):
             steps.append({'kind': 'hunt', 'mob_groups': groups, 'lines': lines, 'reqs': reqs,
                           'text': lines[0] if len(lines) == 1 else 'Hunt: ' + '; '.join(lines)})
+        for src, g in gathers.items():
+            g['text'] = g['lines'][0] if len(g['lines']) == 1 else f'{src.how[0].upper()}{src.how[1:]}: ' + ', '.join(
+                line.split(' (')[0].removeprefix('Collect ') for line in g['lines'])
+            steps.append(g)
         steps += crafts
         for line, req in other:
             steps.append({'kind': 'other', 'text': line, 'lines': [line], 'reqs': [req]})
@@ -104,9 +115,10 @@ class QuestGuide:
 
     def _item_plan(self, q, item, count, kill_mobs=()):
         """Where a quest's required item comes from: ('deliver',) when the NPC hands it over, ('hunt',
-        text, monsters), ('craft', text, master NPC), or ('other', text). Checked in this order: given on
-        accept, given by an earlier quest in the chain, a monster named in the item's name, a crafting
-        recipe, a monster the quest text names, the quest's own kill targets, any quest that gives some."""
+        text, monsters), ('gather', text, item) from breaking things on maps (gathering.py), ('craft', text,
+        master NPC), or ('other', text). Checked in this order: given on accept, given by an earlier quest in
+        the chain, a monster named in the item's name, things to break, a crafting recipe, a monster the quest
+        text names, the quest's own kill targets, any quest that gives some."""
         qd = self.qdata
         name = qd['items'].get(item, f'Item {item}')
         mob_list = lambda mobs: ' / '.join(qd['mob_names'].get(m, str(m)) for m in mobs)
@@ -119,6 +131,8 @@ class QuestGuide:
         src = [m for m in qd['item_sources'].get(item) or [] if m in self.mobs]
         if src:
             return ('hunt', f'Collect {count} {name} (from {mob_list(src)})', src)
+        if gathering.spots(self.graph, item):
+            return ('gather', f'Collect {count} {name} ({gathering.SOURCES[item].how})', item)
         disciplines, makes = _crafting()
         if item in makes:
             r = min(makes[item], key=lambda r: r['level'])
@@ -126,12 +140,12 @@ class QuestGuide:
             crafts = -(-count // r['result'][1])  # one craft can make several
             item_name = lambda i: qd['items'].get(i) or ITEM_NAMES().get(i, f'item {i}')
             parts = [f'{c * crafts:,} {item_name(i)}' for i, c in r['ingredients']]
-            if r['additive']:
-                parts.append(f'{r["additive"][1] * crafts:,} {item_name(r["additive"][0])}')
             text = (f'Craft {count} {name}: {d.get("name", "crafting")} Lv {r["level"]}, needs {" + ".join(parts)}'
                     + (f' + {r["meso"] * crafts:,} mesos' if r['meso'] else '')
                     + (f' in all' if crafts > 1 else '')
-                    + (f' (learn it from {self._npc_name(d["npc"])})' if d.get('npc') else ''))
+                    + (f' (learn it from {self._npc_name(d["npc"])})' if d.get('npc') else '')
+                    # the catalyst is optional (a gamble on better results), so it isn't counted as needed
+                    + (f'; optional: {r["additive"][1] * crafts:,} {item_name(r["additive"][0])}' if r['additive'] else ''))
             return ('craft', text, d.get('npc'))
         text_src = [m for m in {int(k): v for k, v in (q.get('text_sources') or {}).items()}.get(item, [])
                     if m in self.mobs]
@@ -166,6 +180,8 @@ class QuestGuide:
                         lines.append((f'{self.qdata["items"].get(item, item)}: handed to you when you accept it', None))
                     elif plan[0] == 'hunt':
                         lines.append(self._hunt_line(plan[1], plan[2], count * 2))
+                    elif plan[0] == 'gather':
+                        lines.append(self._gather_line(plan[1], plan[2]))
                     else:
                         lines.append((plan[1], None))
                 if lines:
@@ -184,6 +200,15 @@ class QuestGuide:
         parts = [f'{self.farmable(map_id, [m])} {self.qdata["mob_names"].get(m, m)}' for m in mobs
                  if m in self.graph[map_id]['mobs']]
         return f'{text}: hunt at {str(self.map_names.get(map_id, map_id)).strip()} ({" + ".join(parts)})', map_id
+
+    def _gather_line(self, text, item):
+        """(text + the map to go to, map) for something to break later in the chain."""
+        where = gathering.spots(self.graph, item)
+        map_id = gathering.best_map(where, self.dist, WALK_SECONDS)
+        if map_id is None:
+            return text, None
+        return (f'{text}: {str(self.map_names.get(map_id, map_id)).strip()} has {len(where[map_id])}',
+                map_id)
 
     def apply_log(self, entry, handed_in):
         """Update from the game's Quest Helper box. entry is this quest's (smoothed) entry, or None if it
@@ -269,6 +294,14 @@ class QuestGuide:
             if not all_in_one:
                 note += ' (no single map has every monster; this one has the first)'
             return map_id, None, note
+        if step['kind'] == 'gather':
+            where = gathering.spots(self.graph, step['items'][0])
+            map_id = gathering.best_map(where, dist, WALK_SECONDS)
+            if map_id is None:
+                return None, None, "these aren't on any map in the game data"
+            src = gathering.SOURCES[step['items'][0]]
+            return map_id, None, (f'{self.map_names.get(map_id, map_id)}: {len(where[map_id])} {src.plural}, circled on '
+                                  f'screen and marked on the minimap (a broken one comes back after a while)')
         return None, None, ''
 
     def best_map(self, groups, needs, dist):
@@ -302,6 +335,76 @@ class QuestGuide:
         return [counts.get(r, 10) for r in step['reqs']]
 
 
+class GuideButtons:
+    """A small "Guide" button beside each quest in the game's own Quest Helper box (just left of the box),
+    to start the navigator's quest guide for it. The quest being guided shows "Guiding" instead.
+
+    They sit left of the area the box reader captures, so with "Show on stream" on they can't be read
+    as part of the box."""
+
+    GAP = 0.17  # gap left of the box's title words, in widths of those words (the box reader looks 0.15 left)
+
+    def __init__(self, root, k, prepare_window, on_guide):
+        self.root, self.k, self.prepare_window, self.on_guide = root, k, prepare_window, on_guide
+        self.windows = {}  # qid -> (Toplevel, Label, hwnd)
+        self.shown = None  # what was last placed, to skip redundant updates
+
+    def update(self, rect, title, quests, guided):
+        """rect: the game window; title: (x, y, w, h) of the box's "Quest Helper" words (window coords);
+        quests: [(qid, (line y, line height))]; guided: the quest being guided, or None."""
+        state = (rect, title, tuple(quests), guided)
+        if state == self.shown:
+            return
+        self.shown = state
+        gx, gy, gw, gh = rect
+        x, _, w, _ = title
+        for qid in list(self.windows):
+            if qid not in dict(quests):
+                self.windows[qid][0].withdraw()
+        for qid, (line_y, line_h) in quests:
+            win, label, _ = self.windows.get(qid) or self._make(qid)
+            current = qid == guided
+            label.config(text='Guiding' if current else 'Guide \u25b8', bg=ACCENT if current else BG,
+                         fg=BG if current else ACCENT, cursor='arrow' if current else 'hand2')
+            win.update_idletasks()
+            bw, bh = win.winfo_reqwidth(), win.winfo_reqheight()
+            left = x - self.GAP * w - bw  # just left of the box (and of the area the box reader looks at)
+            if left < 0:
+                left = x + 3.65 * w  # the box is at the window's left edge: put them on its right
+            win.geometry(f'+{int(gx + left)}+{int(gy + line_y + line_h / 2 - bh / 2)}')
+            if win.state() == 'withdrawn':
+                win.deiconify()
+            win.lift()
+
+    def _make(self, qid):
+        k = self.k
+        win = tk.Toplevel(self.root)
+        win.overrideredirect(True)
+        win.attributes('-topmost', True)
+        win.config(bg=ACCENT)
+        label = tk.Label(win, font=('Segoe UI', 9, 'bold'), padx=int(8 * k), pady=int(1 * k))
+        label.pack(padx=1, pady=1)
+        label.bind('<Button-1>', lambda e: self.on_guide(qid))
+        hwnd = self.prepare_window(win)
+        self.windows[qid] = (win, label, hwnd)
+        return self.windows[qid]
+
+    def hide(self):
+        self.shown = None
+        for win, _, _ in self.windows.values():
+            if win.state() != 'withdrawn':
+                win.withdraw()
+
+    def raise_windows(self):
+        for win, _, _ in self.windows.values():
+            if win.state() != 'withdrawn':
+                win.attributes('-topmost', True)
+                win.lift()
+
+    def hwnds(self):
+        return {hwnd for win, _, hwnd in self.windows.values() if hwnd and win.state() != 'withdrawn'}
+
+
 class QuestPanel:
     """Small panel at the right of the game window listing the steps of the active quest."""
 
@@ -309,6 +412,7 @@ class QuestPanel:
         self.root, self.k, self.guide = root, k, guide
         self.on_step, self.on_stop, self.on_next_quest, self.quest_name = on_step, on_stop, on_next_quest, quest_name
         self.on_go = on_go  # on_go(map_id): navigate to a map (the Go buttons of upcoming hunts)
+        self.banner = None  # (text, [(button text, command)]) while following a leveling route
         self.win = tk.Toplevel(root)
         self.win.overrideredirect(True)
         self.win.attributes('-topmost', True)
@@ -325,7 +429,18 @@ class QuestPanel:
         k, g, q = self.k, self.guide, self.guide.q
         for w in self.body.winfo_children():
             w.destroy()
+        self.count_labels = []  # (label, line, requirement) of the current step's lines with a count
         wrap = int(380 * k)
+        if self.banner:  # following a leveling route: which stage, and Skip / Stop following
+            text, actions = self.banner
+            bar = tk.Frame(self.body, bg=PANEL, padx=int(8 * k), pady=int(4 * k))
+            bar.pack(fill='x', pady=(0, int(8 * k)))
+            tk.Label(bar, text=text, font=('Segoe UI', 9, 'bold'), bg=PANEL, fg=ACCENT, anchor='w', justify='left',
+                     wraplength=wrap - int(150 * k)).pack(side='left')
+            for label, cmd in reversed(actions):
+                b = tk.Label(bar, text=label, font=('Segoe UI', 9, 'bold'), bg=BG, fg=FG, padx=int(6 * k), cursor='hand2')
+                b.pack(side='right', padx=(int(4 * k), 0))
+                b.bind('<Button-1>', lambda e, c=cmd: c())
         tk.Label(self.body, text='QUEST HELPER', font=('Segoe UI', 8, 'bold'), bg=BG, fg=ACCENT, anchor='w').pack(fill='x')
         tk.Label(self.body, text=quest_label(g.qdata, g.qid), font=('Segoe UI', 13, 'bold'), bg=BG, fg=FG, anchor='w',
                  wraplength=wrap, justify='left').pack(fill='x')
@@ -350,13 +465,16 @@ class QuestPanel:
             tk.Label(row, text=mark, font=('Segoe UI', 11, 'bold'), width=2, bg=row['bg'],
                      fg=OK if done else ACCENT if current else DIM).pack(side='left', anchor='n')
             lines = step.get('lines') if current and step.get('lines') else [step['text']]
-            if current and step.get('reqs'):
-                lines = [line + g.progress_text(req) for line, req in zip(lines, step['reqs'])]
+            reqs = step.get('reqs') if current and step.get('reqs') else [None] * len(lines)
             box = tk.Frame(row, bg=row['bg'])
             box.pack(side='left', fill='x')
-            for line in lines:
-                tk.Label(box, text=line, font=('Segoe UI', 10, 'bold' if current else 'normal'), bg=row['bg'],
-                         fg=FG if current else DIM, anchor='w', justify='left', wraplength=wrap - int(30 * k)).pack(fill='x')
+            for line, req in zip(lines, reqs):
+                label = tk.Label(box, text=line + (g.progress_text(req) if req else ''),
+                                 font=('Segoe UI', 10, 'bold' if current else 'normal'), bg=row['bg'],
+                                 fg=FG if current else DIM, anchor='w', justify='left', wraplength=wrap - int(30 * k))
+                label.pack(fill='x')
+                if req:
+                    self.count_labels.append((label, line, req))
             if current and self.note:
                 tk.Label(box, text='\u2192 ' + self.note, font=('Segoe UI', 9), bg=row['bg'], fg=ACCENT, anchor='w',
                          justify='left', wraplength=wrap - int(30 * k)).pack(fill='x')
@@ -409,8 +527,17 @@ class QuestPanel:
                 self._button(btns, '\u25c0 Back', lambda: self.move(-1), False)
             last = g.index == len(g.steps) - 1
             self._button(btns, 'Done \u2713' if last else 'Next \u25b6', lambda: self.move(1), True)
-            self._button(btns, 'Stop quest', self.on_stop, False)
+            if not self.banner:  # following a route: its banner has Skip / Stop following instead
+                self._button(btns, 'Stop quest', self.on_stop, False)
         self.place()
+
+    def update_counts(self):
+        """New kill/item counts from the game's box: change just those lines' text. Rebuilding the whole
+        panel for this made it flash on every kill."""
+        for label, line, req in self.count_labels:
+            text = line + self.guide.progress_text(req)
+            if label.cget('text') != text:
+                label.config(text=text)
 
     def _button(self, parent, text, cmd, primary):
         b = tk.Label(parent, text=text, font=('Segoe UI', 10, 'bold'), bg=ACCENT if primary else PANEL,
@@ -441,11 +568,15 @@ class QuestPanel:
             self.win.lift()
 
     def place(self):
+        """Under the minimap (or a quarter of the way down before it's been seen), and never past the bottom
+        of the game window: if it's too tall to fit there, it moves up."""
         if not self.game_rect:
             return
         gx, gy, gw, gh = self.game_rect
-        y = max(gh * 0.25, (getattr(self, 'top', None) or 0) + gh * 0.015)
+        top = getattr(self, 'top', None)
+        y = top + gh * 0.015 if top else gh * 0.25
         self.win.update_idletasks()
+        y = max(0, min(y, gh - self.win.winfo_reqheight() - gh * 0.01))
         self.win.geometry(f'+{int(gx + gw * 0.006)}+{int(gy + y)}')
 
     def hide(self):

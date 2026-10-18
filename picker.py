@@ -1,10 +1,12 @@
-"""In-game destination picker: a small "Navigate" button plus a searchable map list."""
+"""The in-game Search button and its panel: find a map, monster, NPC, quest or item (and go there), plus
+the navigator's settings."""
 import difflib
 import json
 import pathlib
 import re
 import tkinter as tk
 import tkinter.font
+import tkinter.messagebox
 
 from mobs import search as mobsearch
 from npcs import search as npcsearch
@@ -61,6 +63,13 @@ def save_prefs(**changes):
         pass
 
 
+def remove_prefs(*keys):
+    try:
+        PREFS.write_text(json.dumps({k: v for k, v in load_prefs().items() if k not in keys}), encoding='utf-8')
+    except OSError:
+        pass
+
+
 def load_recent():
     return load_prefs().get('recent', [])
 
@@ -73,7 +82,9 @@ def save_recent(map_id):
     save_prefs(recent=([map_id] + [r for r in load_recent() if r != map_id])[:MAX_RECENT])
 
 
-MODES = (('maps', 'Maps'), ('monsters', 'Monsters'), ('npcs', 'NPCs'), ('quests', 'Quests'), ('items', 'Items'))
+HEADINGS = {'quests': 'Quests', 'items': 'Item database', 'leveling': 'Leveling route'}  # (else "Navigate to")
+MODES = (('maps', 'Maps'), ('monsters', 'Monsters'), ('npcs', 'NPCs'), ('quests', 'Quests'), ('items', 'Items'),
+         ('leveling', 'Leveling'))
 
 
 def _next_mode(mode):
@@ -82,13 +93,15 @@ def _next_mode(mode):
 
 
 class Picker:
-    """Owns the Navigate button and the search panel. Calls on_pick(map_id or None)."""
+    """Owns the Search button and its panel. Calls on_pick(map_id or None)."""
 
     def __init__(self, root, maps, graph, mobs, npcs, qdata, travel_data, k, on_pick, on_close, on_options,
-                 on_quest, get_level, prepare_window, on_stream=None, on_stats=None, on_item=None, on_quit=None):
+                 on_quest, get_level, prepare_window, on_stream=None, on_stats=None, on_item=None, on_quit=None,
+                 on_follow=None):
         self.root, self.graph, self.mobs, self.npcs, self.travel, self.k = root, graph, mobs, npcs, travel_data, k
         self.qdata, self.on_quest, self.get_level = qdata, on_quest, get_level
         self.on_quit = on_quit  # the Quit button: close the whole navigator
+        self.on_follow = on_follow  # on_follow(route, stage index): follow a leveling route from that stage
         self.get_active_quests = lambda: []  # set by the overlay: entries from the game's Quest Helper box
         self.on_item = on_item  # open an item's info panel
         self._item_data = None  # (items, by name, crafting, quest links), loaded when the Items tab is first used
@@ -104,33 +117,83 @@ class Picker:
         self.on_stats = on_stats
         self.show_hidden = bool(load_prefs().get('show_hidden', True))  # mark hidden street entrances
         self.show_teleports = bool(load_prefs().get('show_teleports', True))  # mark same-map teleporters
-        self.show_item_prices = bool(load_prefs().get('show_item_prices', True))  # right-click item info panel, inventory tab value
+        self.fade_moving = bool(load_prefs().get('fade_moving', True))  # panels fade while the character moves
+        self.show_item_prices = bool(load_prefs().get('show_item_prices', True))  # right-click item info panel
         self.mode = 'maps'
+        self.followed_route = None  # the leveling route being followed (set by the overlay), for the Leveling tab
         self.mob_only = None  # (query, [mob ids]): what find_monster searched; that query lists only them
         self.current = None
         self.panel = None
         self.panel_hwnd = None
-        self.game_rect = None
+        self.game_rect = None    # the game window (x, y, w, h), as last shown on
+        self.buttons_for = None  # the game window the top buttons were last centred on
         self.rows = []
 
-        # Navigate button
+        # Search button
         self.button = tk.Toplevel(root)
         self.button.overrideredirect(True)
         self.button.attributes('-topmost', True)
         self.button.config(bg=ACCENT)
-        lbl = tk.Label(self.button, text='⌖  Navigate', font=('Segoe UI', 11, 'bold'),
-                       bg=BG, fg=FG, padx=int(14 * k), pady=int(5 * k), cursor='hand2')
-        lbl.pack(padx=2, pady=2)
-        lbl.bind('<Button-1>', lambda e: self.open())
-        lbl.bind('<Enter>', lambda e: lbl.config(bg=SEL))
-        lbl.bind('<Leave>', lambda e: lbl.config(bg=BG))
+        bar = tk.Frame(self.button, bg=ACCENT)
+        bar.pack(padx=2, pady=2)
+        # Windows' own icons (its icon font, as in its search boxes); plain symbols if that font is missing
+        icon_font = next((f for f in ('Segoe Fluent Icons', 'Segoe MDL2 Assets') if f in tkinter.font.families(root)), None)
+        self._top_button(bar, icon_font, '\ue721', '\u2315', 'Search', self.open).pack(side='left')
+        # Stop: only while navigating (set_navigating), so a destination can be dropped without the panel
+        self.stop_face = self._top_button(bar, icon_font, '\ue711', '\u2715', 'Stop', self._stop_clicked)
+        self.navigating = False
         self.button.withdraw()
         self.button_hwnd = prepare_window(self.button)
 
     # -- button ----------------------------------------------------------------
+    def _top_button(self, parent, icon_font, icon_char, fallback, label, command):
+        """One of the buttons at the top of the game window: an icon and a word."""
+        k = self.k
+        face = tk.Frame(parent, bg=BG, padx=int(14 * k), pady=int(5 * k), cursor='hand2')
+        icon = tk.Label(face, text=icon_char if icon_font else fallback, font=(icon_font or 'Segoe UI', 11), bg=BG, fg=FG)
+        icon.pack(side='left', padx=(0, int(8 * k)))
+        text = tk.Label(face, text=label, font=('Segoe UI', 11, 'bold'), bg=BG, fg=FG)
+        text.pack(side='left')
+        for w in (face, icon, text):
+            w.bind('<Button-1>', lambda e: command())
+            w.bind('<Enter>', lambda e: [p.config(bg=SEL) for p in (face, icon, text)])
+            w.bind('<Leave>', lambda e: [p.config(bg=BG) for p in (face, icon, text)])
+        return face
+
+    def set_navigating(self, navigating):
+        """Show the Stop button beside Search while there's a destination."""
+        if navigating == self.navigating:
+            return
+        self.navigating = navigating
+        if navigating:
+            self.stop_face.pack(side='left', padx=(2, 0))
+        else:
+            self.stop_face.pack_forget()
+        # the buttons' width changed: centre them again. (Not by forgetting game_rect: the Search panel is
+        # placed with it, and a panel opened before it was set again appeared at the top left of the screen.)
+        self.buttons_for = None
+
+    def _confirm_quit(self):
+        """The Quit button: ask first, since it turns the whole overlay off until it's started again."""
+        if tkinter.messagebox.askyesno('MSCW Navigator', 'Turn off the overlay?\n\n'
+                                       'It stays off until you start MSCW Navigator again.',
+                                       parent=self.panel, icon='question', default='no'):
+            self.close()
+            self.on_quit()
+        elif self.panel is not None:
+            self.entry.focus_force()
+
+    def _stop_clicked(self):
+        self.on_pick(None)
+        if self.panel is not None:
+            self.close()
+        else:
+            self.on_close()  # give the game its focus back
+
     def show_button(self, gx, gy, gw, gh):
-        if self.game_rect != (gx, gy, gw, gh):
-            self.game_rect = (gx, gy, gw, gh)
+        self.game_rect = (gx, gy, gw, gh)
+        if self.buttons_for != self.game_rect:
+            self.buttons_for = self.game_rect
             self.button.update_idletasks()
             bw = self.button.winfo_reqwidth()
             self.button.geometry(f'+{int(gx + gw / 2 - bw / 2)}+{int(gy + gh * 0.045)}')
@@ -166,7 +229,8 @@ class Picker:
         body.pack(padx=2, pady=2, fill='both', expand=True)
 
         here = self.by_id.get(self.current)
-        tk.Label(body, text='Navigate to', font=('Segoe UI', 14, 'bold'), bg=BG, fg=FG, anchor='w').pack(fill='x')
+        self.heading = tk.Label(body, text='', font=('Segoe UI', 14, 'bold'), bg=BG, fg=FG, anchor='w')
+        self.heading.pack(fill='x')
         tk.Label(body, text=f'You are in: {here["street"]}: {here["name"]}' if here else 'Current map not detected yet',
                  font=('Segoe UI', 10), bg=BG, fg=DIM, anchor='w').pack(fill='x', pady=(0, int(8 * k)))
 
@@ -206,6 +270,7 @@ class Picker:
         self.fixed_var = tk.BooleanVar(value=self.arrow_fixed)
         self.stream_var = tk.BooleanVar(value=self.show_on_stream)
         self.stats_var = tk.BooleanVar(value=self.show_stats)
+        self.fade_var = tk.BooleanVar(value=self.fade_moving)
         self.hidden_var = tk.BooleanVar(value=self.show_hidden)
         self.teleport_var = tk.BooleanVar(value=self.show_teleports)
         self.price_var = tk.BooleanVar(value=self.show_item_prices)
@@ -215,9 +280,10 @@ class Picker:
         for row, text, var, cmd in ((display, 'Fixed arrow (top of screen)', self.fixed_var, self.arrow_changed),
                                     (display, 'Show on stream / recordings', self.stream_var, self.stream_changed),
                                     (display, 'EXP/meso tracker', self.stats_var, self.stats_changed),
+                                    (display, 'Fade panels while moving', self.fade_var, self.fade_changed),
                                     (markers, 'Hidden streets', self.hidden_var, self.hidden_changed),
                                     (markers, 'Teleporters', self.teleport_var, self.teleports_changed),
-                                    (markers, 'Item info (right-click) & inventory value', self.price_var, self.prices_changed)):
+                                    (markers, 'Item info (right-click)', self.price_var, self.prices_changed)):
             tk.Checkbutton(row, text=text, variable=var, command=cmd, font=('Segoe UI', 10), bg=BG, fg=FG,
                            selectcolor=PANEL, activebackground=BG, activeforeground=FG, highlightthickness=0,
                            cursor='hand2').pack(side='left', padx=(int(8 * k), 0))
@@ -234,19 +300,24 @@ class Picker:
                                selectforeground=FG, activestyle='none', relief='flat', highlightthickness=0,
                                height=14, width=80)
         self.list.pack(fill='both', expand=True)
+        # the selected leveling stage's steps (Leveling tab only)
+        self.details = tk.Label(body, font=('Segoe UI', 10), bg=BG, fg=FG, anchor='w', justify='left',
+                                wraplength=int(780 * k))
 
-        btns = tk.Frame(body, bg=BG)
+        btns = self.btns = tk.Frame(body, bg=BG)
         btns.pack(fill='x', pady=(int(10 * k), 0))
         for text, cmd, primary in (('Go', self.go, True), ('Stop navigating', self.stop, False), ('Close', self.close, False)):
             b = tk.Label(btns, text=text, font=('Segoe UI', 11, 'bold'), bg=ACCENT if primary else PANEL,
                          fg=BG if primary else FG, padx=int(14 * k), pady=int(4 * k), cursor='hand2')
             b.pack(side='left', padx=(0, int(8 * k)))
             b.bind('<Button-1>', lambda e, c=cmd: c())
+            if cmd == self.go:
+                self.go_button = b  # "Follow from here" on the Leveling tab
         if self.on_quit:  # there's no console window to close when it runs from the desktop shortcut
             q = tk.Label(btns, text='Quit', font=('Segoe UI', 11, 'bold'), bg=PANEL, fg=DIM,
                          padx=int(14 * k), pady=int(4 * k), cursor='hand2')
-            q.pack(side='right')
-            q.bind('<Button-1>', lambda e: (self.close(), self.on_quit()))
+            q.pack(side='right', padx=(int(8 * k), 0))  # the same gap as between the other buttons
+            q.bind('<Button-1>', lambda e: self._confirm_quit())
             q.bind('<Enter>', lambda e: q.config(fg=FG))
             q.bind('<Leave>', lambda e: q.config(fg=DIM))
         # favourite toggle for the selected map (Maps tab); fixed width so its text change doesn't shift it
@@ -263,7 +334,7 @@ class Picker:
         self.entry.bind('<Up>', lambda e: self.move(-1))
         self.list.bind('<Double-Button-1>', lambda e: self.go())
         self.list.bind('<Button-1>', self._star_click)
-        self.list.bind('<<ListboxSelect>>', lambda e: self._update_fav_button())
+        self.list.bind('<<ListboxSelect>>', lambda e: self._selection_changed())
         for w in (self.entry, self.list):
             w.bind('<Control-d>', lambda e: (self.toggle_favorite(), 'break')[1])
         self.list.bind('<Return>', lambda e: self.go())
@@ -275,6 +346,10 @@ class Picker:
         if self.game_rect:
             gx, gy, gw, gh = self.game_rect
             p.geometry(f'+{int(gx + gw / 2 - p.winfo_reqwidth() / 2)}+{int(gy + gh * 0.18)}')
+        else:  # the game window isn't known yet: just under the Search button, not the screen's top left
+            self.button.update_idletasks()
+            cx = self.button.winfo_rootx() + self.button.winfo_width() / 2
+            p.geometry(f'+{int(cx - p.winfo_reqwidth() / 2)}+{int(self.button.winfo_rooty() + self.button.winfo_height() * 2)}')
         p.lift()
         p.focus_force()
         self.entry.focus_force()
@@ -288,6 +363,11 @@ class Picker:
         save_prefs(show_stats=self.show_stats)
         if self.on_stats:
             self.on_stats(self.show_stats)
+        self.entry.focus_set()
+
+    def fade_changed(self):
+        self.fade_moving = self.fade_var.get()
+        save_prefs(fade_moving=self.fade_moving)
         self.entry.focus_set()
 
     def stream_changed(self):
@@ -325,6 +405,59 @@ class Picker:
         self.refresh()
         self.entry.focus_set()
 
+    # -- leveling routes ---------------------------------------------------------------
+    @staticmethod
+    def _route_hint():
+        return ("Both routes share levels 1-10; at 10 you'll be asked to pick Route A or B. "
+                "Enter follows the guide from the selected stage.")
+
+    def _leveling_rows(self, q):
+        """[(text, map, reachable, {'stage', 'route'})]: the shared start, Route A's and Route B's stages (under a
+        heading each), then the stages both routes meet at again. The stage for your level is marked (on the
+        route you're following, if any). Typing filters them by name."""
+        import leveling
+        level, rows, first_mark = self.get_level(), [], None
+        for heading, route, stages in leveling.sections():
+            here = leveling.current(stages, level)
+            if route and self.followed_route and route != self.followed_route:
+                here = None  # following the other route
+            shown = [(i, st) for i, st in enumerate(stages) if not q.strip() or q.strip().lower() in st['title'].lower()]
+            if heading and shown:
+                rows.append((f'  \u2500\u2500  {heading}', None, False))
+            for i, st in shown:
+                m = self._map(st['map'])
+                if i == here and first_mark is None:
+                    first_mark = len(rows)
+                mark = '\u25b6 ' if i == here else '   '
+                rows.append((f' {mark}{leveling.levels_text(st):9}  \u00b7  {st["title"]}  \u00b7  {m["name"].strip()}  '
+                             f'\u00b7  {self._hops(st["map"])}', m, st['map'] in self.dist, {'stage': st, 'route': route}))
+        self.after_fill = first_mark or 0
+        return rows
+
+    def _show_stage(self):
+        """The selected stage's steps, under the list (Leveling tab)."""
+        if self.mode != 'leveling':
+            return
+        import leveling
+        cur = self.list.curselection()
+        extra = self.rows[cur[0]][1] if cur and cur[0] < len(self.rows) else None
+        lines = []
+        if isinstance(extra, dict) and 'stage' in extra:
+            st, route = extra['stage'], extra['route']
+            lines = leveling.details(st, route)
+            if route:
+                lines.insert(1, f'{leveling.data()["routes"][route]["name"]}: {leveling.data()["routes"][route]["summary"]}')
+            elif st in leveling.data()['stages'][:leveling.shared_count()]:
+                lines.append("Both routes start like this; you'll pick Route A or B at level 10.")
+            else:
+                lines.append('Both routes meet again here.')
+        src = leveling.data()['source']
+        self.details.config(text='\n'.join(lines + [f'Route from {src["name"]} ({src["url"].split("//")[1]})']))
+
+    def _selection_changed(self):
+        self._update_fav_button()
+        self._show_stage()
+
     def set_sort(self, key):
         self.mob_sort = key
         save_prefs(mob_sort=key)
@@ -335,6 +468,7 @@ class Picker:
 
     def set_mode(self, mode):
         self.mode = mode
+        self.heading.config(text=HEADINGS.get(mode, 'Navigate to'))
         for m, t in self.tabs.items():
             t.config(bg=ACCENT if m == mode else PANEL, fg=BG if m == mode else FG)
         if mode == 'monsters':
@@ -343,6 +477,11 @@ class Picker:
                 s.config(bg=ACCENT if k_ == self.mob_sort else PANEL, fg=BG if k_ == self.mob_sort else FG)
         else:
             self.sort_frame.pack_forget()
+        self.go_button.config(text='Follow from here' if mode == 'leveling' and self.on_follow else 'Go')
+        if mode == 'leveling':
+            self.details.pack(fill='x', pady=(int(8 * self.k), 0), before=self.btns)
+        else:
+            self.details.pack_forget()
         if mode == 'maps':
             self.fav_button.pack(side='right')
         else:
@@ -352,7 +491,8 @@ class Picker:
             'monsters': 'Monster name, or several joined by "and" / "," for maps with all of them. Empty = near you.',
             'npcs': 'Type an NPC name or role (e.g. "storage"). Empty shows NPCs near you.',
             'quests': self._quest_hint(),
-            'items': 'Type an item name. Empty shows items your active quests still need. Enter opens its info.'}[mode])
+            'items': 'Type an item name. Empty shows items your active quests still need. Enter opens its info.',
+            'leveling': self._route_hint()}[mode])
         self.refresh()
         self.entry.focus_set()
 
@@ -468,6 +608,9 @@ class Picker:
             return
         if self.mode == 'items':
             self._fill(self._item_rows(q))
+            return
+        if self.mode == 'leveling':
+            self._fill(self._leveling_rows(q))
             return
         favs = set(load_favorites())
         if q.strip():
@@ -586,7 +729,6 @@ class Picker:
     def _quest_rows(self, q):
         """[(text, start map, available, {'quest': id})] for quests matching q, or startable near you."""
         quests, npc_names = self.qdata['quests'], self.qdata['npc_names']
-        done = set(load_prefs().get('done_quests', []))
         level = self.get_level()
 
         def start_map(qd):
@@ -603,8 +745,8 @@ class Picker:
                     if term in labels[qid] or term in _norm(npc_names.get(qd['start_npc'], ''))]
             ids = [qid for _, qid in sorted(hits, key=lambda h: (h[0], quests[h[1]]['lvmin'] or 0))]
         else:
-            ids = [qid for qid, qd in quests.items() if qid not in done and level_ok(qd)
-                   and all(p in done for p in qd['prereq']) and start_map(qd) in self.dist]
+            # (whether a quest is done isn't tracked: follow-ups show too, with the quest they come after)
+            ids = [qid for qid, qd in quests.items() if level_ok(qd) and start_map(qd) in self.dist]
             ids.sort(key=lambda i: (self.dist.get(start_map(quests[i]), 999), -(quests[i]['lvmin'] or 0)))
         rows = []
         if not term:  # quests in the game's own Quest Helper box come first
@@ -624,12 +766,12 @@ class Picker:
             map_id = start_map(qd)
             m = self._map(map_id) if map_id else {'id': None, 'name': '?', 'street': ''}
             npc = npc_names.get(qd['start_npc'], 'no NPC')
-            text = (f' {"[done] " if qid in done else ""}{quest_label(self.qdata, qid)}  ·  Lv {qd["lvmin"] or 1}  ·  '
+            text = (f' {quest_label(self.qdata, qid)}  ·  Lv {qd["lvmin"] or 1}  ·  '
                     f'{npc} ({m["name"]})  ·  {self._hops(map_id) if map_id else "?"}')
-            missing = [quests[p]['name'] for p in qd['prereq'] if p not in done and p in quests]
-            if missing:
-                text += f'  ·  after: {missing[0]}'
-            rows.append((text, m, level_ok(qd) and map_id in self.dist and not missing, {'quest': qid}))
+            after = [quests[p]['name'] for p in qd['prereq'] if p in quests]
+            if after:
+                text += f'  ·  after: {after[0]}'
+            rows.append((text, m, level_ok(qd) and map_id in self.dist, {'quest': qid}))
         if not rows:
             rows.append((' No quests found' if term else ' No new quests nearby for your level', None, False))
         return rows
@@ -643,10 +785,11 @@ class Picker:
                 self.list.itemconfig('end', fg=DIM)
             self.rows.append((m, npc[0] if npc else None))
         if self.rows:
+            start, self.after_fill = min(getattr(self, 'after_fill', 0) or 0, len(self.rows) - 1), 0
             self.list.selection_clear(0, 'end')
-            self.list.selection_set(0)
-            self.list.see(0)
-        self._update_fav_button()
+            self.list.selection_set(start)
+            self.list.see(start)
+        self._selection_changed()
 
     def move(self, step):
         if not self.rows:
@@ -656,7 +799,7 @@ class Picker:
         self.list.selection_clear(0, 'end')
         self.list.selection_set(i)
         self.list.see(i)
-        self._update_fav_button()
+        self._selection_changed()
         return 'break'
 
     # -- favourite maps --------------------------------------------------------------
@@ -688,7 +831,7 @@ class Picker:
                 self.list.selection_set(i)
                 self.list.see(i)
                 break
-        self._update_fav_button()
+        self._selection_changed()
         self.entry.focus_set()
 
     def _star_click(self, e):
@@ -719,6 +862,12 @@ class Picker:
             return
         if m is None:  # an informational row such as "No map has all of ..."
             return
+        if isinstance(npc, dict):  # a leveling stage: follow the route from it (or just go to its map)
+            if self.on_follow:  # (the route: that of the stage's section; None for stages both routes share)
+                self.on_follow(npc['route'], npc['stage'])
+                self.close()
+                return
+            npc = None
         save_recent(m['id'])
         self.on_pick(m['id'], npc)
         self.close()
